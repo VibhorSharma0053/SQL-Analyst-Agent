@@ -1,0 +1,41 @@
+# file: docker-compose.yml
+
+services:
+  # ── Ollama Container (Local LLM Engine) ─────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sql-analyst-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      # Named volume so downloaded models are never lost when container stops
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+  # ── FastAPI Backend ─────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sql-analyst-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount the local SQLite data directory for persistence
+      - ./data:/app/data
+    environment:
+      # Connect to the sibling 'ollama' container over Docker's internal DNS
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LLM_MODEL=llama3.1:8b
+      - DATABASE_URL=sqlite:///./data/analytics.db
+      - APP_ENV=production
+      - MAX_QUERY_ROWS=100
+      - QUERY_TIMEOUT_SECONDS=45
+      - PORT=8000
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+    driver: local
