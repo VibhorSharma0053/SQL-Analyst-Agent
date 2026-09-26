@@ -6,9 +6,26 @@ Supports both remote FastAPI connection and direct Cloud execution.
 """
 
 import os
+import sys
+from pathlib import Path
+
+# ── Fix Python Path for Streamlit Cloud Deployment ─────────────────
+# Adds the root project folder to sys.path so 'import app...' works cleanly
+root_dir = Path(__file__).resolve().parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+
 import streamlit as st
 import httpx
 import json
+
+# Sync Streamlit Cloud Secrets to os.environ for Groq API Key
+try:
+    if "GROQ_API_KEY" in st.secrets:
+        os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+except Exception:
+    pass
+
 from app.agent.ai_analyst import AIAnalyst
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
@@ -37,7 +54,7 @@ def stream_analyze(question: str):
             "POST",
             STREAM_ENDPOINT,
             json={"question": question},
-            timeout=5.0, # Fast timeout check for local API
+            timeout=3.0,  # Fast timeout check for local API
         ) as response:
             if response.status_code == 200:
                 buffer = ""
@@ -180,7 +197,7 @@ if analyze_button and question.strip():
             if result_data.get("truncated"):
                 st.info("ℹ️ Results limited by row cap.")
             st.dataframe(rows, use_container_width=True, hide_index=True)
-        elif not result_data.get("error"):
+        elif not result.get("error"):
             st.info("ℹ️ No results found.")
 
         st.divider()
