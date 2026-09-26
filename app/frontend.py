@@ -1,102 +1,65 @@
 # file: app/frontend.py
 
 """
-Streamlit frontend with real-time streaming progress.
-
-Run:  streamlit run app/frontend.py
-Requires: FastAPI on port 8000, Ollama running
+Streamlit frontend for SQL Analyst Agent.
+Supports both remote FastAPI connection and direct Cloud execution.
 """
 
+import os
 import streamlit as st
 import httpx
 import json
+from app.agent.ai_analyst import AIAnalyst
 
-API_URL = "http://localhost:8000"
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 STREAM_ENDPOINT = f"{API_URL}/analyze/stream"
-REQUEST_TIMEOUT = 180.0
+REQUEST_TIMEOUT = 120.0
 
 st.set_page_config(page_title="SQL Analyst Agent", page_icon="📊", layout="wide")
 
 if "history" not in st.session_state:
     st.session_state.history = []
 
+@st.cache_resource
+def get_direct_analyst():
+    """Instantiates a cached AIAnalyst for in-process cloud execution."""
+    return AIAnalyst()
+
 
 def stream_analyze(question: str):
     """
-    Connects to the SSE streaming endpoint and yields parsed events
-    one at a time as they arrive from the server.
+    Attempts to stream via external FastAPI backend.
+    If backend is unreachable (e.g. standalone Streamlit Cloud deployment),
+    falls back seamlessly to running the in-process AIAnalyst!
     """
     try:
         with httpx.stream(
             "POST",
             STREAM_ENDPOINT,
             json={"question": question},
-            timeout=REQUEST_TIMEOUT,
+            timeout=5.0, # Fast timeout check for local API
         ) as response:
-            if response.status_code != 200:
-                yield {
-                    "type": "result",
-                    "data": {
-                        "question": question,
-                        "answer": f"Server error (HTTP {response.status_code})",
-                        "error": response.read().decode(),
-                        "sql": None, "columns": [], "rows": [],
-                        "row_count": 0, "truncated": False,
-                        "warnings": [], "steps": [],
-                    },
-                }
+            if response.status_code == 200:
+                buffer = ""
+                for chunk in response.iter_text():
+                    buffer += chunk
+                    while "\n\n" in buffer:
+                        event_text, buffer = buffer.split("\n\n", 1)
+                        for line in event_text.strip().split("\n"):
+                            if line.startswith("data: "):
+                                try:
+                                    yield json.loads(line[6:])
+                                except json.JSONDecodeError:
+                                    pass
                 return
+    except Exception:
+        # FastAPI backend not reachable; fallback to direct in-process execution
+        pass
 
-            # Read the SSE stream line by line
-            buffer = ""
-            for chunk in response.iter_text():
-                buffer += chunk
-                # SSE events are separated by double newlines
-                while "\n\n" in buffer:
-                    event_text, buffer = buffer.split("\n\n", 1)
-                    for line in event_text.strip().split("\n"):
-                        if line.startswith("data: "):
-                            try:
-                                yield json.loads(line[6:])
-                            except json.JSONDecodeError:
-                                pass
-
-    except httpx.ConnectError:
-        yield {
-            "type": "result",
-            "data": {
-                "question": question,
-                "answer": "Cannot connect to the backend.",
-                "error": "Start the server: python -m uvicorn app.main:app --reload",
-                "sql": None, "columns": [], "rows": [],
-                "row_count": 0, "truncated": False,
-                "warnings": [], "steps": [],
-            },
-        }
-    except httpx.ReadTimeout:
-        yield {
-            "type": "result",
-            "data": {
-                "question": question,
-                "answer": "The analysis timed out.",
-                "error": f"Exceeded {REQUEST_TIMEOUT}s timeout.",
-                "sql": None, "columns": [], "rows": [],
-                "row_count": 0, "truncated": False,
-                "warnings": [], "steps": [],
-            },
-        }
-    except Exception as e:
-        yield {
-            "type": "result",
-            "data": {
-                "question": question,
-                "answer": "Unexpected error.",
-                "error": str(e),
-                "sql": None, "columns": [], "rows": [],
-                "row_count": 0, "truncated": False,
-                "warnings": [], "steps": [],
-            },
-        }
+    # Direct In-Process Stream Execution (for Streamlit Community Cloud)
+    analyst = get_direct_analyst()
+    for event in analyst.analyze_stream(question):
+        yield event
 
 
 # ── Sidebar ───────────────────────────────────────────────────────
@@ -119,7 +82,7 @@ with st.sidebar:
         st.info("No queries yet.")
     st.divider()
     st.caption("SQL Analyst Agent v0.1.0")
-    st.caption("Ollama + FastAPI + SQLite")
+    st.caption("Powered by LangChain & Streamlit Cloud")
 
 
 # ── Main ──────────────────────────────────────────────────────────
@@ -127,13 +90,13 @@ with st.sidebar:
 st.title("📊 SQL Analyst Agent")
 st.markdown(
     "Ask questions about your sales database in plain English. "
-    "Watch the AI work step by step in real time."
+    "Watch the AI agent inspect the schema, validate SQL safety, and answer in real time."
 )
 st.divider()
 
 question = st.text_input(
     "💬 Ask a question:",
-    placeholder="e.g., Which product sold the most units?",
+    placeholder="e.g., Which product category generated the highest sales revenue?",
     key="question_input",
 )
 
@@ -146,7 +109,7 @@ with col1:
     )
 with col2:
     sample = st.selectbox(
-        "Or try a sample:",
+        "Or try a sample question:",
         [
             "",
             "How many customers do we have?",
@@ -167,29 +130,16 @@ if sample:
 # ── Process with live streaming ───────────────────────────────────
 
 if analyze_button and question.strip():
-
     result_data = None
 
-    # The status container stays open while we read the stream.
-    # Each event updates it in real time.
     with st.status("⏳ Analyzing your question...", state="running", expanded=True) as status_box:
-
         for event in stream_analyze(question.strip()):
-
             if event["type"] == "step":
                 status = event.get("status", "running")
                 name = event.get("step", "")
                 detail = event.get("detail", "")
 
-                if status == "success":
-                    icon = "✅"
-                elif status == "error":
-                    icon = "❌"
-                elif status == "warning":
-                    icon = "⚠️"
-                else:
-                    icon = "⏳"
-
+                icon = "✅" if status == "success" else "❌" if status == "error" else "⚠️" if status == "warning" else "⏳"
                 if detail:
                     st.markdown(f"{icon} **{name}** — _{detail}_")
                 else:
@@ -197,16 +147,12 @@ if analyze_button and question.strip():
 
             elif event["type"] == "result":
                 result_data = event["data"]
-                # Update the status box to final state
                 if result_data.get("error"):
                     status_box.update(label="❌ Analysis failed", state="error")
                 else:
                     status_box.update(label="✅ Analysis complete", state="complete")
 
-    # ── Display final result below the status box ─────────────────
-
     if result_data:
-
         st.session_state.history.append({
             "question": question.strip(),
             "answer": result_data.get("answer", ""),

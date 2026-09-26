@@ -1,64 +1,53 @@
 # file: app/config.py
 
-"""
-Application configuration — fully free version using Ollama.
-
-All LLM inference runs locally through Ollama.
-No API keys required. No cost per query.
-"""
-
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
 
 class Settings(BaseSettings):
-    """
-    All application settings loaded from environment variables.
-    """
+    """Application configuration."""
 
-    # ── Ollama / LLM Settings ─────────────────────────────────────
+    # ── LLM Settings ─────────────────────────────────────────────
+    groq_api_key: str = Field(
+        default="",
+        description="Groq API key for cloud deployment (optional)."
+    )
+
     ollama_base_url: str = Field(
         default="http://localhost:11434",
-        description=(
-            "URL where Ollama is running on your computer. "
-            "Default is always localhost:11434 after installing Ollama."
-        )
+        description="Ollama base URL for local development."
     )
 
     llm_model: str = Field(
         default="llama3.1:8b",
-        description=(
-            "Which Ollama model to use. "
-            "llama3.1:8b is recommended. "
-            "Use llama3.2:3b if your computer has less than 8GB RAM."
-        )
+        description="Model name to use."
     )
 
     # ── Database Settings ─────────────────────────────────────────
     database_url: str = Field(
         default="sqlite:///./data/analytics.db",
-        description="SQLite database file path."
+        description="SQLite database connection URL."
     )
 
     # ── Application Settings ──────────────────────────────────────
     app_env: str = Field(
         default="development",
-        description="Environment: development or production."
+        description="Application environment: development or production."
     )
 
     max_query_rows: int = Field(
         default=100,
-        description="Maximum rows the query tool can return."
+        description="Maximum rows returned by query tool."
     )
 
     query_timeout_seconds: int = Field(
         default=30,
-        description="Maximum seconds a query can run."
+        description="Maximum query execution timeout in seconds."
     )
 
     port: int = Field(
         default=8000,
-        description="Port FastAPI listens on."
+        description="FastAPI port."
     )
 
     class Config:
