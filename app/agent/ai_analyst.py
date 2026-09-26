@@ -58,8 +58,8 @@ class AIAnalyst:
         # Check if Groq API key is present in configuration
         if settings.groq_api_key and settings.groq_api_key.strip():
             from langchain_groq import ChatGroq
-            # Map llama3.1:8b to Groq's model name
-            groq_model = "llama-3.1-8b-instant"
+            # Groq's active high-performance free model
+            groq_model = "llama-3.3-70b-versatile"
             self.llm = ChatGroq(
                 model_name=groq_model,
                 groq_api_key=settings.groq_api_key.strip(),

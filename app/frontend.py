@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 
 # ── Fix Python Path for Streamlit Cloud Deployment ─────────────────
-# Adds the root project folder to sys.path so 'import app...' works cleanly
 root_dir = Path(__file__).resolve().parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
@@ -46,15 +45,14 @@ def get_direct_analyst():
 def stream_analyze(question: str):
     """
     Attempts to stream via external FastAPI backend.
-    If backend is unreachable (e.g. standalone Streamlit Cloud deployment),
-    falls back seamlessly to running the in-process AIAnalyst!
+    If backend is unreachable, falls back to running in-process AIAnalyst!
     """
     try:
         with httpx.stream(
             "POST",
             STREAM_ENDPOINT,
             json={"question": question},
-            timeout=3.0,  # Fast timeout check for local API
+            timeout=3.0,
         ) as response:
             if response.status_code == 200:
                 buffer = ""
@@ -70,7 +68,6 @@ def stream_analyze(question: str):
                                     pass
                 return
     except Exception:
-        # FastAPI backend not reachable; fallback to direct in-process execution
         pass
 
     # Direct In-Process Stream Execution (for Streamlit Community Cloud)
@@ -197,7 +194,7 @@ if analyze_button and question.strip():
             if result_data.get("truncated"):
                 st.info("ℹ️ Results limited by row cap.")
             st.dataframe(rows, use_container_width=True, hide_index=True)
-        elif not result.get("error"):
+        elif not result_data.get("error"):  # Fixed typo: result_data instead of result
             st.info("ℹ️ No results found.")
 
         st.divider()
